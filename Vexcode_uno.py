@@ -11,11 +11,10 @@ brain_inertial = Inertial()
 motor_1 = Motor(Ports.PORT1, False)
 motor_5 = Motor(Ports.PORT5, True)
 
-
 # Wait for sensor(s) to fully initialize
 wait(100, MSEC)
 
-# generating and setting random seed
+# Generating and setting random seed
 def initializeRandomSeed():
     wait(100, MSEC)
     xaxis = brain_inertial.acceleration(XAXIS) * 1000
@@ -30,31 +29,21 @@ initializeRandomSeed()
 #endregion VEXcode Generated Robot Configuration
 # ------------------------------------------
 # 
-#   Project:      VEXcode Project
+#   Project:      VEXcode EXP UNO - Persistent Game Loop & Compact View
 #   Author:       VEX
-#   Created:
-#   Description:  VEXcode EXP Python Project
+#   Description:  Compact hand console view & deck persistence across turns
 # 
 # ------------------------------------------
 
 # Library imports
 from vex import *
 
-# Begin project code
-
 # Create events
 FWD = Event()
 RT = Event()
 LT = Event()
 
-# Functions
-def when_started():
-    FWD.broadcast_and_wait()
-    LT.broadcast_and_wait()
-    FWD.broadcast_and_wait()
-    RT.broadcast_and_wait()
-    FWD.broadcast_and_wait()
-
+# Motor callbacks
 def motor1_move_forward():
     motor_1.spin_for(FORWARD, 425, DEGREES)
 def motor5_move_forward():
@@ -68,7 +57,7 @@ def motor1_turn_left():
 def motor5_turn_left():
     motor_5.spin_for(FORWARD, 220, DEGREES)
 
-# Register the callback functions to the events
+# Register callback functions
 FWD(motor1_move_forward)
 FWD(motor5_move_forward)
 RT(motor1_turn_right)
@@ -78,7 +67,7 @@ LT(motor5_turn_left)
 wait(15, MSEC)
 
 # ==========================================
-# UNO DECK & HAND SYSTEM
+# PHASE 1: DECK & HAND CORE
 # ==========================================
 
 def build_uno_deck():
@@ -87,20 +76,14 @@ def build_uno_deck():
     deck = []
     
     for color in colors:
-        # One '0' card per color
         deck.append(color + " 0")
-        
-        # Two of each number 1 through 9 per color
         for num in range(1, 10):
             deck.append(color + " " + str(num))
             deck.append(color + " " + str(num))
-            
-        # Two of each action card (+2, Skip, Reverse) per color
         for action in action_cards:
             deck.append(color + " " + action)
             deck.append(color + " " + action)
             
-    # Four Wild and four +4 cards
     for _ in range(4):
         deck.append("Wild")
         deck.append("+4")
@@ -108,7 +91,6 @@ def build_uno_deck():
     return deck
 
 def shuffle_deck(deck):
-    # Fisher-Yates shuffle algorithm using VEX's urandom generator
     for i in range(len(deck) - 1, 0, -1):
         j = urandom.randint(0, i)
         deck[i], deck[j] = deck[j], deck[i]
@@ -126,7 +108,6 @@ def deal_hand(deck, hand_size=7):
             hand.append(card)
     return hand
 
-# NEW FUNCTION 1: Converts card names into compact labels to fit 16 columns
 def abbreviate_card(card):
     if card == "Wild":
         return "WLD"
@@ -135,7 +116,7 @@ def abbreviate_card(card):
     
     parts = card.split(" ")
     if len(parts) == 2:
-        color_code = parts[0][0]  # Takes 'R', 'Y', 'G', or 'B'
+        color_code = parts[0][0]
         value = parts[1]
         if value == "Skip":
             value = "SK"
@@ -144,64 +125,165 @@ def abbreviate_card(card):
         return color_code + value
     return card[:4]
 
-# NEW FUNCTION 2: Displays all 7 cards across a 2-column grid on 1 single screen
-def render_compact_hand(hand, deck_count):
+# OPTION B: Compact One-Liner Console Display
+def print_hand_to_console(hand, deck, current_top):
+    print("\n--------------------------------------------------")
+    print("TOP CARD: " + current_top + " | DECK REMAINING: " + str(len(deck)))
+    formatted = " | ".join("[" + str(i + 1) + "] " + card for i, card in enumerate(hand))
+    print("YOUR HAND (" + str(len(hand)) + "): " + formatted)
+    print("--------------------------------------------------\n")
+
+# ==========================================
+# PHASE 2: MENU & TURN INTERACTION SYSTEM
+# ==========================================
+
+def select_menu_option(header_title, options):
+    selected_index = 0
+    
+    while True:
+        brain.screen.clear_screen()
+        brain.screen.set_cursor(1, 1)
+        brain.screen.print(header_title[:16])
+        
+        # Display current option on line 3
+        brain.screen.set_cursor(3, 1)
+        opt_text = "< " + options[selected_index] + " >"
+        brain.screen.print(opt_text[:16])
+        
+        # Display control guide on line 5
+        brain.screen.set_cursor(5, 1)
+        brain.screen.print("[L/R]Sel  [v]OK")
+        
+        while not (brain.buttonLeft.pressing() or brain.buttonRight.pressing() or brain.buttonCheck.pressing()):
+            wait(20, MSEC)
+            
+        if brain.buttonLeft.pressing():
+            selected_index = (selected_index - 1) % len(options)
+            while brain.buttonLeft.pressing():
+                wait(20, MSEC)
+        elif brain.buttonRight.pressing():
+            selected_index = (selected_index + 1) % len(options)
+            while brain.buttonRight.pressing():
+                wait(20, MSEC)
+        elif brain.buttonCheck.pressing():
+            while brain.buttonCheck.pressing():
+                wait(20, MSEC)
+            return options[selected_index]
+
+def display_hand_and_pause(hand, top_card, deck_count):
     brain.screen.clear_screen()
     
-    # Row 1: Header summary line
+    # Row 1: Top card & remaining deck
     brain.screen.set_cursor(1, 1)
-    brain.screen.print("HND:7 | DECK:" + str(deck_count))
+    hdr = "TOP:" + abbreviate_card(top_card) + "|DK:" + str(deck_count)
+    brain.screen.print(hdr[:16])
     
-    # Row 2: Cards 1 and 2
-    c1 = "1:" + abbreviate_card(hand[0])
-    c2 = "2:" + abbreviate_card(hand[1])
-    brain.screen.set_cursor(2, 1)
-    brain.screen.print((c1 + " " * (8 - len(c1)) + c2)[:16])
-    
-    # Row 3: Cards 3 and 4
-    c3 = "3:" + abbreviate_card(hand[2])
-    c4 = "4:" + abbreviate_card(hand[3])
-    brain.screen.set_cursor(3, 1)
-    brain.screen.print((c3 + " " * (8 - len(c3)) + c4)[:16])
-    
-    # Row 4: Cards 5 and 6
-    c5 = "5:" + abbreviate_card(hand[4])
-    c6 = "6:" + abbreviate_card(hand[5])
-    brain.screen.set_cursor(4, 1)
-    brain.screen.print((c5 + " " * (8 - len(c5)) + c6)[:16])
-    
-    # Row 5: Card 7
-    c7 = "7:" + abbreviate_card(hand[6])
+    # Rows 2 to 4: Cards in hand
+    slots = [[2, 1], [2, 9], [3, 1], [3, 9], [4, 1], [4, 9]]
+    for idx in range(min(6, len(hand))):
+        row = slots[idx][0]
+        col = slots[idx][1]
+        brain.screen.set_cursor(row, col)
+        lbl = str(idx + 1) + ":" + abbreviate_card(hand[idx])
+        brain.screen.print(lbl[:7])
+        
+    # Row 5: Navigation prompt
     brain.screen.set_cursor(5, 1)
-    brain.screen.print(c7[:16])
+    if len(hand) >= 7:
+        brain.screen.print("7:" + abbreviate_card(hand[6]) + "  [v]Next")
+    else:
+        brain.screen.print("   [v]Next Turn")
+        
+    while not brain.buttonCheck.pressing():
+        wait(20, MSEC)
+    while brain.buttonCheck.pressing():
+        wait(20, MSEC)
 
-def print_hand_to_console(hand, deck):
-    print("=== STARTING HAND (7 Cards) ===")
-    for position, card in enumerate(hand, start=1):
-        print("Card " + str(position) + ": " + str(card))
-    print("Cards remaining in deck: " + str(len(deck)))
+def input_discard_pile():
+    categories = ["Red", "Yellow", "Green", "Blue", "Wild", "+4"]
+    chosen_cat = select_menu_option("DISCARD COLOR:", categories)
+    
+    if chosen_cat == "Wild":
+        chosen_color = select_menu_option("WILD COLOR:", ["Red", "Yellow", "Green", "Blue"])
+        return chosen_color + " Wild"
+    elif chosen_cat == "+4":
+        chosen_color = select_menu_option("+4 COLOR:", ["Red", "Yellow", "Green", "Blue"])
+        return chosen_color + " +4"
+    else:
+        values = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Reverse", "+2"]
+        chosen_val = select_menu_option(chosen_cat + " VALUE:", values)
+        return chosen_cat + " " + chosen_val
 
-# Generate initial deck, shuffle, and deal starting hand
+def process_player_turn(discard_card, hand, deck):
+    # Check for initial forced draw cards on discard pile
+    if "+2" in discard_card:
+        drawn_1 = draw_card(deck)
+        drawn_2 = draw_card(deck)
+        if drawn_1: hand.append(drawn_1)
+        if drawn_2: hand.append(drawn_2)
+        select_menu_option("FORCED DRAW +2", ["Draw 2 Cards"])
+        return discard_card
+        
+    elif "+4" in discard_card:
+        for _ in range(4):
+            drawn = draw_card(deck)
+            if drawn:
+                hand.append(drawn)
+        select_menu_option("FORCED DRAW +4", ["Draw 4 Cards"])
+        return discard_card
+        
+    else:
+        action = select_menu_option("YOUR TURN:", ["Play Card", "Draw 1 Card"])
+        
+        if action == "Draw 1 Card":
+            drawn = draw_card(deck)
+            if drawn:
+                hand.append(drawn)
+                print(">>> YOU DREW: " + drawn)
+                select_menu_option("YOU DREW:", [drawn])
+            else:
+                select_menu_option("DECK EMPTY!", ["No Cards Left"])
+            return discard_card
+            
+        else:
+            hand_options = []
+            for idx, card in enumerate(hand):
+                hand_options.append(str(idx + 1) + ":" + abbreviate_card(card))
+                
+            selected_str = select_menu_option("SELECT CARD:", hand_options)
+            card_idx = int(selected_str.split(":")[0]) - 1
+            played_card = hand.pop(card_idx)
+            
+            if "Wild" in played_card or "+4" in played_card:
+                chosen_color = select_menu_option("CHOOSE COLOR:", ["Red", "Yellow", "Green", "Blue"])
+                played_card = chosen_color + " " + played_card
+                
+            print(">>> YOU PLAYED: " + played_card)
+            return played_card
+
+# ==========================================
+# MAIN GAME EXECUTION
+# ==========================================
+
+# 1. Initialize deck and deal starting hand ONCE per match
 uno_deck = build_uno_deck()
 shuffle_deck(uno_deck)
 player_hand = deal_hand(uno_deck, 7)
 
-# Print full details to console and render all 7 cards on 1 screen
-print_hand_to_console(player_hand, uno_deck)
-render_compact_hand(player_hand, len(uno_deck))
+print("==================================")
+print("=== NEW UNO GAME STARTED ===")
 
-# Main Execution Loop: Press physical Checkmark button to deal a new 7-card hand
-while True:
-    if brain.buttonCheck.pressing():
-        uno_deck = build_uno_deck()
-        shuffle_deck(uno_deck)
-        player_hand = deal_hand(uno_deck, 7)
-        
-        print_hand_to_console(player_hand, uno_deck)
-        render_compact_hand(player_hand, len(uno_deck))
-        
-        # Debounce button press
-        while brain.buttonCheck.pressing():
-            wait(20, MSEC)
-            
-    wait(20, MSEC)
+# 2. Select initial top discard card
+discard_top = input_discard_pile()
+
+# 3. Continuous turn loop (hand persists across all turns)
+while len(player_hand) > 0:
+    print_hand_to_console(player_hand, uno_deck, discard_top)
+    
+    # Process single player turn
+    discard_top = process_player_turn(discard_top, player_hand, uno_deck)
+    
+    # Display current hand on brain screen and pause until Checkmark is pressed
+    display_hand_and_pause(player_hand, discard_top, len(uno_deck))
+
+print("\nGAME OVER - Hand Empty!")
