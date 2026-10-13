@@ -29,15 +29,15 @@ initializeRandomSeed()
 #endregion VEXcode Generated Robot Configuration
 # ------------------------------------------
 # 
-#   Project:     VEXcode EXP UNO - Game Loop (Version 1.8)
+#   Project:     VEXcode EXP UNO - Complete Game Loop (Version 2.3)
 #   Author:      VEX
-#   Description: Version 1.8 Updates:
-#                - Integrated draw_card_full_screen() graphical renderer
-#                - Automated Opponent -> Player turn loop (no turn prompt)
-#                - Startup sequence: Displays hand -> Check press -> Attack check
-#                - Hand privacy: Screen hidden/cleared during robot driving
-#                - Played card rendered face-up full screen before delivery
-#                - UNO Card Back flashes for each drawn card during fetch
+#   Description: Version 2.3 Updates:
+#                - Removed unnecessary "START DISCARD" prompt
+#                - Startup sequence fixed: Hand -> Incoming Attack Check -> Opponent Played Card
+#                - Printed full shuffled deck & starting hand to console
+#                - Enforces UNO forced draw (+2 / +4) turn-skip rule
+#                - Phase 4 Effects: SoundType.SIREN2 + "UNO!" on second-to-last card
+#                - Victory Celebration: SoundType.ALARM2 + "WINNER!" + victory_dance()
 #                - Formatted strictly for 5-Row x 16-Column VEX EXP Screen
 # 
 # ------------------------------------------
@@ -237,7 +237,7 @@ def draw_card_full_screen(card_str, color_code):
             brain.screen.draw_line(159-16-i, 107-75, 159-16-i, 107-66)
             brain.screen.draw_line(159-10, 107-66-i, 159-30, 107-66-i)
     else:
-        # UNO Card Back Display (Red background, Yellow oval)
+        # UNO Card Back Display
         brain.screen.set_fill_color(Color.RED)
         brain.screen.set_pen_color(Color.RED)
         for i in range(40):
@@ -256,7 +256,10 @@ def draw_card_full_screen(card_str, color_code):
             brain.screen.draw_line(75, 50+i+15, 85, 50+i+15)
             brain.screen.draw_line(83+(i/2), 50+15, 83+(i/2), 50+25)
             brain.screen.draw_line(75, 50+i+25, 85, 50+i+25)
-    brain.screen.set_fill_color(Color.TRANSPARENT)
+
+    # Always reset screen colors back to standard default
+    brain.screen.set_fill_color(Color.BLACK)
+    brain.screen.set_pen_color(Color.WHITE)
 
 
 def card_to_gfx_args(card_name):
@@ -264,13 +267,14 @@ def card_to_gfx_args(card_name):
     Translates card text string into (card_str, color_code) tuple
     for draw_card_full_screen().
     """
-    if "Wild" in card_name and "+4" not in card_name:
-        return ("W", "N")
-    elif "+4" in card_name:
-        return ("D4", "N")
-    
     parts = card_name.split(" ")
-    color_char = parts[0][0] if len(parts) > 0 else 'N'
+    color_char = parts[0][0] if len(parts) > 1 and parts[0] in ["Red", "Green", "Blue", "Yellow"] else 'N'
+
+    if "Wild" in card_name and "+4" not in card_name:
+        return ("W", color_char)
+    elif "+4" in card_name:
+        return ("D4", color_char)
+    
     val = parts[1] if len(parts) > 1 else ""
 
     if val == "Skip": val = "S"
@@ -287,11 +291,12 @@ def flash_uno_card_back(count=1):
     for _ in range(count):
         draw_card_full_screen("BACK", "N")
         wait(600, MSEC)
+        brain.screen.set_fill_color(Color.BLACK)
         brain.screen.clear_screen()
         wait(200, MSEC)
 
 # ==========================================
-# PHASE 1: ROBOT MOVEMENT FUNCTIONS
+# PHASE 1: ROBOT MOVEMENT & DANCE FUNCTIONS
 # ==========================================
 
 def robot_drive_forward_2():
@@ -319,14 +324,16 @@ def robot_turn_180():
     robot_turn_90_right()
 
 
-def robot_deliver_card():
+def robot_deliver_card(msg="ROBOT DELIVERING"):
     """
     Hides hand, drives 2 units forward to deliver card face-up,
     spins 180 degrees, and returns to player.
     """
+    brain.screen.set_fill_color(Color.BLACK)
+    brain.screen.set_pen_color(Color.WHITE)
     brain.screen.clear_screen()
     brain.screen.set_cursor(3, 1)
-    brain.screen.print("ROBOT DELIVERING"[:16])
+    brain.screen.print(msg[:16])
     robot_drive_forward_2()
     robot_turn_180()
     robot_drive_forward_2()
@@ -338,6 +345,8 @@ def robot_fetch_card():
     Hides hand, drives 2 units forward to draw pile at center,
     spins 180 degrees, and returns to deliver drawn card.
     """
+    brain.screen.set_fill_color(Color.BLACK)
+    brain.screen.set_pen_color(Color.WHITE)
     brain.screen.clear_screen()
     brain.screen.set_cursor(3, 1)
     brain.screen.print("ROBOT FETCHING"[:16])
@@ -345,6 +354,31 @@ def robot_fetch_card():
     robot_turn_180()
     robot_drive_forward_2()
     robot_turn_180()
+
+
+def victory_dance():
+    """
+    VICTORY CELEBRATION FUNCTION: Plays SoundType.ALARM2, displays "WINNER!",
+    and uses motion broadcasts (RT, LT, FWD) to perform a victory dance.
+    """
+    brain.play_sound(SoundType.ALARM2)
+    brain.screen.set_fill_color(Color.BLACK)
+    brain.screen.set_pen_color(Color.WHITE)
+    brain.screen.clear_screen()
+    brain.screen.set_cursor(2, 1)
+    brain.screen.print("WINNER!"[:16])
+    
+    # Motion broadcasts victory dance sequence
+    RT.broadcast()
+    wait(400, MSEC)
+    LT.broadcast()
+    wait(400, MSEC)
+    LT.broadcast()
+    wait(400, MSEC)
+    RT.broadcast()
+    wait(400, MSEC)
+    FWD.broadcast()
+    wait(500, MSEC)
 
 # ==========================================
 # PHASE 2: DECK & HAND CORE
@@ -441,15 +475,11 @@ def get_legal_moves(hand, top_card):
 
 def check_game_over(hand):
     """
-    Checks if player's hand is empty and displays victory screen.
+    Checks if player's hand is empty.
+    If empty, triggers victory_dance() and returns True to end game loop.
     """
     if len(hand) == 0:
-        brain.screen.clear_screen()
-        brain.screen.set_cursor(2, 1)
-        brain.screen.print("! YOU WIN !"[:16])
-        brain.screen.set_cursor(4, 1)
-        brain.screen.print("  HAND EMPTY  "[:16])
-        wait(3, SECONDS)
+        victory_dance()
         return True
     return False
 
@@ -465,6 +495,8 @@ def select_menu_option(header_title, options):
     selected_index = 0
     
     while True:
+        brain.screen.set_fill_color(Color.BLACK)
+        brain.screen.set_pen_color(Color.WHITE)
         brain.screen.clear_screen()
         
         # Row 1: Header Title
@@ -508,6 +540,8 @@ def view_full_hand(hand, top_card):
         if page > max_page:
             page = max_page
 
+        brain.screen.set_fill_color(Color.BLACK)
+        brain.screen.set_pen_color(Color.WHITE)
         brain.screen.clear_screen()
         
         # Row 1: Header displaying TC, HS, P
@@ -554,7 +588,7 @@ def view_full_hand(hand, top_card):
                 wait(20, MSEC)
 
 
-def input_discard_pile(prompt_label="START DISCARD:"):
+def input_discard_pile(prompt_label="OPPONENT PLAYED:"):
     """
     Function to record initial discard or opponent played card.
     Displays graphical card face-up after entry.
@@ -584,7 +618,8 @@ def input_discard_pile(prompt_label="START DISCARD:"):
 def process_player_turn(discard_card, hand, deck):
     """
     Handles turn choices for 'My Turn'.
-    Hides hand during driving, displays played card face-up, and flashes UNO Back on draws.
+    - Detects second-to-last card play (1 card remaining): plays SoundType.SIREN2 & displays "UNO!".
+    - Detects last card play (0 cards remaining): displays "WINNING CARD!" before victory celebration.
     """
     while True:
         turn_menu_title = "YOUR MOVE:"
@@ -599,7 +634,6 @@ def process_player_turn(discard_card, hand, deck):
 
         # 2. Draw 1 Card option
         elif choice == "Draw 1 Card":
-            # Flash UNO Back card once while robot fetches card (Hand hidden)
             flash_uno_card_back(1)
             robot_fetch_card()
             drawn = draw_card(deck)
@@ -652,74 +686,103 @@ def process_player_turn(discard_card, hand, deck):
             # Display played card face-up full-screen before delivering
             gfx_args = card_to_gfx_args(played_card)
             draw_card_full_screen(gfx_args[0], gfx_args[1])
-            wait(1500, MSEC)
+            wait(1000, MSEC)
 
-            # Hide hand during delivery move
-            robot_deliver_card()
+            # PHASE 4 EFFECT & VICTORY CHECKS
+            if len(hand) == 1:
+                # Second-to-last card play (leaves 1 card in hand)
+                brain.play_sound(SoundType.SIREN2)
+                robot_deliver_card(msg="UNO!")
+            elif len(hand) == 0:
+                # Last card played
+                robot_deliver_card(msg="FINAL CARD!")
+            else:
+                robot_deliver_card()
+
             return played_card
 
 
 # ==========================================
-# MAIN GAME EXECUTION (VERSION 1.8)
+# MAIN GAME EXECUTION (VERSION 2.3)
 # ==========================================
 
-# 1. Initialize deck and deal starting hand ONCE per match
+# 1. Initialize deck, shuffle deck, and PRINT SHUFFLED DECK TO CONSOLE
 uno_deck = build_uno_deck()
 shuffle_deck(uno_deck)
+print("=== SHUFFLED DECK ===")
+print(uno_deck)
+
+# 2. Deal starting hand and PRINT STARTING HAND TO CONSOLE IMMEDIATELY
 player_hand = deal_hand(uno_deck, 7)
+print("\n=== STARTING HAND (7 CARDS) ===")
+print(player_hand)
 
-print("==================================")
-print("=== NEW UNO GAME STARTED (v1.8) ===")
+print("\n==================================")
+print("=== NEW UNO GAME STARTED (v2.3) ===")
 
-# 2. STARTUP SEQUENCE: Show deck/hand -> Check button -> Incoming Attack Check
-view_full_hand(player_hand, "START")
+# 3. EXACT STARTUP FLOW:
+# 3A. Display Starting Hand on Screen
+view_full_hand(player_hand, "STARTING HAND")
 
-# Check for initial incoming attack
+# 3B. Incoming Attack Check
 attack_choice = select_menu_option("INCOMING ATTACK?", ["None", "+2", "+4"])
 if attack_choice in ["+2", "+4"]:
     penalty = 2 if attack_choice == "+2" else 4
-    # Flash UNO Back card multiple times while robot fetches forced draw
     flash_uno_card_back(penalty)
     robot_fetch_card()
     for _ in range(penalty):
         drawn = draw_card(uno_deck)
         if drawn:
             player_hand.append(drawn)
+    view_full_hand(player_hand, "AFTER ATTACK")
 
-# Select initial top discard card at game startup
-discard_top = input_discard_pile("START DISCARD:")
+# 3C. Prompt for Opponent's First Played Card (Initial Discard)
+discard_top = input_discard_pile("OPPONENT PLAYED:")
+print(">>> OPPONENT PLAYED: " + str(discard_top))
 
-# 3. Continuous Automated Opponent -> Player Turn Loop
+# Check if opponent played +2 or +4
+if "+2" in discard_top or "+4" in discard_top:
+    penalty = 2 if "+2" in discard_top else 4
+    select_menu_option("ATTACK! DRAW " + str(penalty), ["Draw " + str(penalty) + " Cards"])
+    flash_uno_card_back(penalty)
+    robot_fetch_card()
+    for _ in range(penalty):
+        drawn = draw_card(uno_deck)
+        if drawn:
+            player_hand.append(drawn)
+    discard_top = discard_top.replace("+2", "2").replace("+4", "Wild")
+    view_full_hand(player_hand, discard_top)
+
+# 4. Continuous Turn Loop
 while True:
     if check_game_over(player_hand):
         break
 
-    print_hand_to_console(player_hand, uno_deck, discard_top)
+    # 4A. Player Turn ("My Turn")
+    discard_top = process_player_turn(discard_top, player_hand, uno_deck)
 
-    # 3A. Opponent Turn Entry (Always opponent first)
+    if check_game_over(player_hand):
+        break
+
+    # 4B. View remaining hand after robot delivers and returns to player
+    view_full_hand(player_hand, discard_top)
+
+    # 4C. Opponent Turn Entry
+    print_hand_to_console(player_hand, uno_deck, discard_top)
     discard_top = input_discard_pile("OPPONENT PLAYED:")
     print(">>> OPPONENT PLAYED: " + str(discard_top))
 
-    # 3B. Check if opponent played +2 or +4 against player
+    # 4D. Check if opponent played +2 or +4 against player
     if "+2" in discard_top or "+4" in discard_top:
         penalty = 2 if "+2" in discard_top else 4
-        # Flash UNO Card Back 'penalty' times while fetching cards
+        select_menu_option("ATTACK! DRAW " + str(penalty), ["Draw " + str(penalty) + " Cards"])
         flash_uno_card_back(penalty)
         robot_fetch_card()
         for _ in range(penalty):
             drawn = draw_card(uno_deck)
             if drawn:
                 player_hand.append(drawn)
-        # Clear penalty state from active discard card
         discard_top = discard_top.replace("+2", "2").replace("+4", "Wild")
-
-    # 3C. Player 1 ("My Turn")
-    discard_top = process_player_turn(discard_top, player_hand, uno_deck)
-
-    if check_game_over(player_hand):
-        break
-
-    # 3D. View remaining hand after robot delivers and returns to player
-    view_full_hand(player_hand, discard_top)
+        view_full_hand(player_hand, discard_top)
 
 print("\nGAME OVER - All cards played!")
