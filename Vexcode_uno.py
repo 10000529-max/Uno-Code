@@ -29,14 +29,10 @@ initializeRandomSeed()
 #endregion VEXcode Generated Robot Configuration
 # ------------------------------------------
 # 
-#   Project:     VEXcode EXP UNO - Version 3.5
+#   Project:     VEXcode EXP UNO - Version 5.5 (4v4 Clear Player Indicator)
 #   Author:      VEX
-#   Description: - Reverted to Full Graphical UNO Framework.
-#                - Calibrated Movement Engine:
-#                  * Single Continuous Forward Drive (`FORWARD_DEGREES = 850`).
-#                  * Tuned Turn Calibration (`TURN_90_DEGREES = 228`).
-#                  * Repositioning Right Alignment (`ALIGN_RIGHT_DEGREES = 12`).
-#                - Full House Rules, Attack Handling, Custom Menus & Graphics preserved.
+#   Description: - Clean screen displays for 4v4 mode (P1, P2, P3, P4).
+#                - Immediate loading response and center-pivot rotation.
 # 
 # ------------------------------------------
 
@@ -48,9 +44,13 @@ from vex import *
 
 DRIVE_SPEED = 40          # Straight driving percentage speed
 TURN_SPEED = 30           # Precise turning percentage speed
-FORWARD_DEGREES = 850     # Single continuous forward motion distance
-TURN_90_DEGREES = 228     # Standard 90-degree turn calibration
-ALIGN_RIGHT_DEGREES = 12  # Fine-tuned right adjustment during 180° turns/repositioning
+FORWARD_DEGREES = 850    # Distance between Center and Player stations
+TURN_90_DEGREES = 228    # Standard 90-degree turn calibration
+ALIGN_RIGHT_DEGREES = 2   # Micro 2 degree adjustment to prevent drift
+
+# Tracks robot cardinal orientation at center: 
+# 0 = P1 (North), 1 = P2 (East), 2 = P3 (South), 3 = P4 (West)
+current_robot_heading = 0
 
 def configure_motors():
     motor_1.set_stopping(HOLD)
@@ -61,21 +61,33 @@ def configure_motors():
 configure_motors()
 
 # ==========================================
-# GLOBAL CUSTOM RULES CONFIGURATION
+# GLOBAL CUSTOM RULES & GAME MODE SETUP
 # ==========================================
 
 custom_rules = {
-    "stack_similar": False,        # Automatically play matching rank cards together
-    "stack_draw2": False,          # Automatically stack +2 when attacked with a +2
-    "draw_until_playable": False   # Stay at center drawing cards until finding a playable card
+    "stack_similar": False,        # Play matching rank cards together
+    "stack_draw2": False,          # Stack +2 when attacked with a +2
+    "draw_until_playable": False   # Draw cards until finding a playable card
 }
+
+game_mode = "Unchanged"
+
+
+def show_loading_screen(status_msg="LOADING 4v4..."):
+    """Displays immediate feedback to prevent menu screen freezes."""
+    brain.screen.set_fill_color(Color.BLACK)
+    brain.screen.set_pen_color(Color.YELLOW)
+    brain.screen.clear_screen()
+    brain.screen.set_cursor(2, 1)
+    brain.screen.print("=================")
+    brain.screen.set_cursor(3, 1)
+    brain.screen.print(status_msg[:16])
+    brain.screen.set_cursor(4, 1)
+    brain.screen.print("=================")
+    wait(100, MSEC)
 
 
 def setup_custom_rules_menu():
-    """
-    Rules Menu: Displays options in RED when OFF and GREEN when ON.
-    Rule options: "Stack Similar", "Stack +2s", "Draw Till Play"
-    """
     rule_keys = ["stack_similar", "stack_draw2", "draw_until_playable"]
     rule_names = ["Stack Similar", "Stack +2s", "Draw Till Play"]
     
@@ -137,14 +149,18 @@ def setup_custom_rules_menu():
 
 
 def start_main_menu():
-    """
-    Startup main menu allowing players to enter Rules or Play Game.
-    """
+    global game_mode
     while True:
-        choice = select_menu_option("UNO MAIN MENU", ["Play Game", "Rules"])
+        choice = select_menu_option("UNO MAIN MENU", ["Play Game", "Rules", "4v4"])
         if choice == "Rules":
             setup_custom_rules_menu()
         elif choice == "Play Game":
+            version_choice = select_menu_option("SELECT VERSION:", ["Unchanged", "Chaotic", "AI"])
+            game_mode = version_choice
+            break
+        elif choice == "4v4":
+            game_mode = "4v4"
+            show_loading_screen("DEALING CARDS...")
             break
 
 # ==========================================
@@ -152,13 +168,14 @@ def start_main_menu():
 # ==========================================
 
 def set_color_by_card(card_name):
-    if "Red" in card_name:
+    card_s = str(card_name)
+    if "Red" in card_s:
         brain.screen.set_pen_color(Color.RED)
-    elif "Green" in card_name:
+    elif "Green" in card_s:
         brain.screen.set_pen_color(Color.GREEN)
-    elif "Blue" in card_name:
+    elif "Blue" in card_s:
         brain.screen.set_pen_color(Color.BLUE)
-    elif "Yellow" in card_name:
+    elif "Yellow" in card_s:
         brain.screen.set_pen_color(Color.YELLOW)
     else:
         brain.screen.set_pen_color(Color.WHITE)
@@ -174,8 +191,8 @@ def draw_card_full_screen(card_str, color_code):
     brain.screen.set_pen_color(Color.WHITE)
     for i in range(5):
         brain.screen.draw_rectangle(0+i, 0+i, 159-(i*2), 107-(i*2))
-   
-    card = card_str[1:]
+    
+    card = card_str[1:] if len(card_str) > 1 else card_str
     if card == "0":
         for i in range(15):
             brain.screen.draw_rectangle(20+i, 20+i, 119-(i*2), 67-(i*2))
@@ -297,7 +314,7 @@ def draw_card_full_screen(card_str, color_code):
         for i in range(65):
             brain.screen.draw_circle(80, 52, 31+(i/5))
         brain.screen.set_pen_width(1)
-    elif card_str == "D4":
+    elif card_str == "D4" or card_str == "D8":
         brain.screen.set_fill_color(Color.YELLOW)
         brain.screen.draw_rectangle(78, 42, 40, 25)
         brain.screen.set_fill_color(Color.GREEN)
@@ -306,18 +323,19 @@ def draw_card_full_screen(card_str, color_code):
         brain.screen.draw_rectangle(42, 42, 40, 25)
         brain.screen.set_fill_color(Color.RED)
         brain.screen.draw_rectangle(60, 56, 40, 25)
-        for i in range(5):
-            brain.screen.draw_line(18+i, 85, 18+i, 95)
-            brain.screen.draw_line(14, 88+i, 26, 88+i)
-            brain.screen.draw_line(10, 75+i, 20, 75+i)
-            brain.screen.draw_line(16+i, 75, 16+i, 66)
-            brain.screen.draw_line(10, 66+i, 30, 66+i)
-
-            brain.screen.draw_line(159-18-i, 107-85, 159-18-i, 107-95)
-            brain.screen.draw_line(159-14, 107-88-i, 159-26, 107-88-i)
-            brain.screen.draw_line(159-10, 107-75-i, 159-20, 107-75-i)
-            brain.screen.draw_line(159-16-i, 107-75, 159-16-i, 107-66)
-            brain.screen.draw_line(159-10, 107-66-i, 159-30, 107-66-i)
+        
+        brain.screen.set_cursor(3, 8)
+        brain.screen.set_pen_color(Color.WHITE)
+        if card_str == "D8":
+            brain.screen.print("+8")
+        else:
+            brain.screen.print("+4")
+    elif card_str == "M2":
+        brain.screen.set_fill_color(Color.PURPLE)
+        brain.screen.draw_rectangle(30, 20, 100, 67)
+        brain.screen.set_cursor(3, 8)
+        brain.screen.set_pen_color(Color.WHITE)
+        brain.screen.print("-2")
     else:
         # UNO Card Back Display
         brain.screen.set_fill_color(Color.RED)
@@ -344,12 +362,17 @@ def draw_card_full_screen(card_str, color_code):
 
 
 def card_to_gfx_args(card_name):
-    parts = card_name.split(" ")
+    card_s = str(card_name)
+    parts = card_s.split(" ")
     color_char = parts[0][0] if len(parts) > 1 and parts[0] in ["Red", "Green", "Blue", "Yellow"] else 'N'
 
-    if "Wild" in card_name and "+4" not in card_name:
+    if "+8" in card_s:
+        return ("D8", color_char)
+    elif "-2" in card_s:
+        return ("M2", color_char)
+    elif "Wild" in card_s and "+4" not in card_s:
         return ("W", color_char)
-    elif "+4" in card_name:
+    elif "+4" in card_s:
         return ("D4", color_char)
     
     val = parts[1] if len(parts) > 1 else ""
@@ -370,57 +393,89 @@ def flash_uno_card_back(count=1):
         wait(200, MSEC)
 
 # ==========================================
-# HIGH-PRECISION ROBOT MOVEMENT FUNCTIONS
+# ROBOT MOVEMENT & SHARED CENTER NAVIGATION
 # ==========================================
 
 def robot_drive_forward_2():
-    """
-    Drives forward in a single continuous smooth motion (850 degrees).
-    """
     motor_1.set_velocity(DRIVE_SPEED, PERCENT)
     motor_5.set_velocity(DRIVE_SPEED, PERCENT)
-    
     motor_1.spin_for(FORWARD, FORWARD_DEGREES, DEGREES, False)
     motor_5.spin_for(FORWARD, FORWARD_DEGREES, DEGREES, True)
     wait(150, MSEC)
 
 
 def robot_turn_90_right():
-    """
-    Executes a right turn using calibrated rotation angles (228°).
-    """
     motor_1.set_velocity(TURN_SPEED, PERCENT)
     motor_5.set_velocity(TURN_SPEED, PERCENT)
-    
     motor_1.spin_for(FORWARD, TURN_90_DEGREES, DEGREES, False)
     motor_5.spin_for(REVERSE, TURN_90_DEGREES, DEGREES, True)
     wait(150, MSEC)
-    
+    motor_1.set_velocity(DRIVE_SPEED, PERCENT)
+    motor_5.set_velocity(DRIVE_SPEED, PERCENT)
+
+
+def robot_turn_90_left():
+    motor_1.set_velocity(TURN_SPEED, PERCENT)
+    motor_5.set_velocity(TURN_SPEED, PERCENT)
+    motor_1.spin_for(REVERSE, TURN_90_DEGREES, DEGREES, False)
+    motor_5.spin_for(FORWARD, TURN_90_DEGREES, DEGREES, True)
+    wait(150, MSEC)
     motor_1.set_velocity(DRIVE_SPEED, PERCENT)
     motor_5.set_velocity(DRIVE_SPEED, PERCENT)
 
 
 def robot_turn_180():
-    """
-    Executes a full 180° turn with a 12° micro-correction right adjustment.
-    """
     robot_turn_90_right()
     wait(100, MSEC)
     robot_turn_90_right()
     wait(100, MSEC)
-    
     if ALIGN_RIGHT_DEGREES > 0:
         motor_1.set_velocity(TURN_SPEED, PERCENT)
         motor_5.set_velocity(TURN_SPEED, PERCENT)
         motor_1.spin_for(FORWARD, ALIGN_RIGHT_DEGREES, DEGREES, False)
         motor_5.spin_for(REVERSE, ALIGN_RIGHT_DEGREES, DEGREES, True)
         wait(100, MSEC)
-    
     motor_1.set_velocity(DRIVE_SPEED, PERCENT)
     motor_5.set_velocity(DRIVE_SPEED, PERCENT)
 
 
-def robot_deliver_card(played_card, is_uno=False, is_final=False):
+def turn_to_player_position(target_p_idx):
+    """
+    Pivots at Center Deck to face active Player Station:
+    0 = P1 (North), 1 = P2 (East), 2 = P3 (South), 3 = P4 (West)
+    """
+    global current_robot_heading
+    diff = (target_p_idx - current_robot_heading) % 4
+
+    if diff == 1:
+        robot_turn_90_right()
+    elif diff == 2:
+        robot_turn_180()
+    elif diff == 3:
+        robot_turn_90_left()
+
+    current_robot_heading = target_p_idx
+
+
+def move_from_center_to_player(p_idx):
+    """
+    Pivots at Center toward player `p_idx` and drives outward to player station.
+    """
+    turn_to_player_position(p_idx)
+    robot_drive_forward_2()
+
+
+def play_card_from_player_to_center(played_card, player_lbl="P1", is_uno=False, is_final=False):
+    """
+    Robot starts at Player Station:
+    1. Turns 180° and drives to the SHARED CENTER.
+    2. Displays card graphics and drops card on Center pile.
+    3. Turns 180° and drives BACK to Player Station.
+    4. Turns 180° and returns to CENTER to prepare for next player's turn.
+    """
+    robot_turn_180()
+    robot_drive_forward_2()
+
     gfx_args = card_to_gfx_args(played_card)
     draw_card_full_screen(gfx_args[0], gfx_args[1])
 
@@ -436,48 +491,43 @@ def robot_deliver_card(played_card, is_uno=False, is_final=False):
         brain.screen.set_fill_color(Color.BLACK)
         brain.screen.print("  FINAL CARD! ")
 
-    robot_drive_forward_2()
-    robot_turn_180()
+    wait(1200, MSEC)
 
-    brain.screen.set_fill_color(Color.BLACK)
-    brain.screen.clear_screen()
-
-    robot_drive_forward_2()
     robot_turn_180()
+    robot_drive_forward_2()
 
     brain.screen.set_fill_color(Color.BLACK)
     brain.screen.set_pen_color(Color.WHITE)
     brain.screen.clear_screen()
     brain.screen.set_cursor(3, 1)
-    brain.screen.print("  CARD PLAYED   ")
+    msg = (player_lbl + " PLAYED") if player_lbl else "CARD PLAYED"
+    brain.screen.print(msg[:16])
     wait(1000, MSEC)
+
+    robot_turn_180()
+    robot_drive_forward_2()
+    robot_turn_180()
 
 
 def robot_fetch_card(count=1):
-    brain.screen.set_fill_color(Color.BLACK)
-    brain.screen.clear_screen()
+    robot_turn_180()
     robot_drive_forward_2()
 
     flash_uno_card_back(count)
 
     robot_turn_180()
-
-    brain.screen.set_fill_color(Color.BLACK)
-    brain.screen.clear_screen()
     robot_drive_forward_2()
-    robot_turn_180()
 
     brain.screen.set_fill_color(Color.BLACK)
     brain.screen.set_pen_color(Color.WHITE)
     brain.screen.clear_screen()
     brain.screen.set_cursor(3, 1)
-    brain.screen.print("   CARD ADDED   ")
+    brain.screen.print("    CARD ADDED   ")
     wait(1000, MSEC)
 
 
 def robot_fetch_until_playable(hand, deck, top_card):
-    brain.screen.set_fill_color(Color.BLACK)
-    brain.screen.clear_screen()
+    robot_turn_180()
     robot_drive_forward_2()
 
     drawn_count = 0
@@ -488,18 +538,13 @@ def robot_fetch_until_playable(hand, deck, top_card):
         hand.append(drawn)
         drawn_count += 1
         flash_uno_card_back(1)
-        print(">>> DRAW TILL PLAYABLE DREW: " + drawn)
 
         legal = get_legal_moves(hand, top_card)
         if legal:
             break
 
     robot_turn_180()
-
-    brain.screen.set_fill_color(Color.BLACK)
-    brain.screen.clear_screen()
     robot_drive_forward_2()
-    robot_turn_180()
 
     brain.screen.set_fill_color(Color.BLACK)
     brain.screen.set_pen_color(Color.WHITE)
@@ -510,13 +555,13 @@ def robot_fetch_until_playable(hand, deck, top_card):
     wait(1200, MSEC)
 
 
-def victory_dance():
+def victory_dance(winner_name="WINNER!"):
     brain.play_sound(SoundType.ALARM2)
     brain.screen.set_fill_color(Color.BLACK)
     brain.screen.set_pen_color(Color.WHITE)
     brain.screen.clear_screen()
     brain.screen.set_cursor(2, 1)
-    brain.screen.print("WINNER!"[:16])
+    brain.screen.print(winner_name[:16])
     
     robot_turn_90_right()
     robot_turn_90_right()
@@ -543,6 +588,11 @@ def build_uno_deck():
     for _ in range(4):
         deck.append("Wild")
         deck.append("+4")
+
+    if game_mode in ["Chaotic", "AI", "4v4"]:
+        for _ in range(4):
+            deck.append("+8")
+            deck.append("-2")
         
     return deck
 
@@ -565,12 +615,17 @@ def deal_hand(deck, hand_size=7):
     return hand
 
 def abbreviate_card(card):
-    if card == "Wild":
+    card_s = str(card)
+    if card_s == "Wild":
         return "WLD"
-    if card == "+4":
+    if card_s == "+4":
         return "W+4"
+    if card_s == "+8":
+        return "W+8"
+    if card_s == "-2":
+        return "M-2"
     
-    parts = card.split(" ")
+    parts = card_s.split(" ")
     if len(parts) == 2:
         color_code = parts[0][0]
         value = parts[1]
@@ -579,20 +634,16 @@ def abbreviate_card(card):
         elif value == "Reverse":
             value = "RV"
         return color_code + value
-    return card[:4]
+    return card_s[:4]
 
 def get_card_rank(card_str):
-    parts = card_str.split(" ")
+    parts = str(card_str).split(" ")
     if len(parts) > 1:
         return parts[1]
     return parts[0]
 
 def print_hand_to_console(hand, deck, current_top):
-    print("\n--------------------------------------------------")
-    print("TOP CARD: " + str(current_top) + " | DECK REMAINING: " + str(len(deck)))
-    formatted = " | ".join("[" + str(i + 1) + "] " + card for i, card in enumerate(hand))
-    print("YOUR HAND (" + str(len(hand)) + "): " + formatted)
-    print("--------------------------------------------------\n")
+    print("TOP: " + str(current_top) + " | DECK: " + str(len(deck)) + " | HAND: " + str(len(hand)))
 
 # ==========================================
 # PHASE 3: GAME STATE & RULE FUNCTIONS
@@ -600,15 +651,17 @@ def print_hand_to_console(hand, deck, current_top):
 
 def get_legal_moves(hand, top_card):
     legal_indices = []
-    top_parts = top_card.split(" ")
+    top_s = str(top_card)
+    top_parts = top_s.split(" ")
     top_color = top_parts[0] if len(top_parts) > 0 else ""
     top_val = top_parts[1] if len(top_parts) > 1 else top_parts[0]
 
     for idx, card in enumerate(hand):
-        if "Wild" in card or "+4" in card:
+        card_s = str(card)
+        if "Wild" in card_s or "+4" in card_s or "+8" in card_s or "-2" in card_s:
             legal_indices.append(idx)
         else:
-            card_parts = card.split(" ")
+            card_parts = card_s.split(" ")
             card_color = card_parts[0] if len(card_parts) > 0 else ""
             card_val = card_parts[1] if len(card_parts) > 1 else card_parts[0]
 
@@ -618,11 +671,26 @@ def get_legal_moves(hand, top_card):
     return legal_indices
 
 
-def check_game_over(hand):
+def check_game_over(hand, winner_label="WINNER!"):
     if len(hand) == 0:
-        victory_dance()
+        victory_dance(winner_label)
         return True
     return False
+
+def get_ai_best_color(hand):
+    color_counts = {"Red": 0, "Yellow": 0, "Green": 0, "Blue": 0}
+    for card in hand:
+        card_s = str(card)
+        for c in color_counts:
+            if c in card_s:
+                color_counts[c] += 1
+    best_color = "Red"
+    max_c = -1
+    for c, count in color_counts.items():
+        if count > max_c:
+            max_c = count
+            best_color = c
+    return best_color
 
 # ==========================================
 # PHASE 4: MENU & SCREEN INTERACTION SYSTEM
@@ -755,13 +823,18 @@ def view_full_hand(hand):
 
 
 def input_top_card():
-    chosen_color = select_menu_option("TOP CARD COLOR:", ["Red", "Yellow", "Green", "Blue", "Wild"])
+    top_options = ["Red", "Yellow", "Green", "Blue", "Wild"]
+    chosen_color = select_menu_option("TOP CARD COLOR:", top_options)
     
     if chosen_color == "Wild":
-        wild_type = select_menu_option("WILD TYPE:", ["Wild", "+4"])
-        if wild_type == "+4":
+        wild_options = ["Wild", "+4"]
+        if game_mode in ["Chaotic", "AI", "4v4"]:
+            wild_options.extend(["+8", "-2"])
+        wild_type = select_menu_option("WILD TYPE:", wild_options)
+        
+        if wild_type in ["+4", "+8", "-2"]:
             eff_color = select_menu_option("EFFECT COLOR:", ["Red", "Yellow", "Green", "Blue"])
-            card_res = eff_color + " +4"
+            card_res = eff_color + " " + wild_type
         else:
             eff_color = select_menu_option("EFFECT COLOR:", ["Red", "Yellow", "Green", "Blue"])
             card_res = eff_color + " Wild"
@@ -781,10 +854,80 @@ def handle_draw_action(hand, deck, top_card):
         drawn = draw_card(deck)
         if drawn:
             hand.append(drawn)
-            print(">>> YOU DREW: " + drawn)
         else:
             select_menu_option("DECK EMPTY!", ["No Cards Left"])
 
+
+# ==========================================
+# AUTONOMOUS PLAYER TURN ENGINE (4v4 / AI)
+# ==========================================
+
+def process_autonomous_turn(discard_card, hand, deck, player_lbl="P1"):
+    legal_indices = get_legal_moves(hand, discard_card)
+
+    if not legal_indices:
+        brain.screen.set_fill_color(Color.BLACK)
+        brain.screen.set_pen_color(Color.WHITE)
+        brain.screen.clear_screen()
+        brain.screen.set_cursor(3, 1)
+        brain.screen.print((player_lbl + " DRAWING...")[:16])
+        wait(800, MSEC)
+        handle_draw_action(hand, deck, discard_card)
+        return discard_card
+
+    chosen_idx = legal_indices[0]
+    for idx in legal_indices:
+        card_s = str(hand[idx])
+        if not any(w in card_s for w in ["Wild", "+4", "+8", "-2"]):
+            chosen_idx = idx
+            break
+
+    played_card = hand.pop(chosen_idx)
+
+    # Automatic Stack Similar Rule
+    if custom_rules["stack_similar"]:
+        played_rank = get_card_rank(played_card)
+        matching_indices = [i for i, c in enumerate(hand) if get_card_rank(c) == played_rank]
+        if matching_indices:
+            stacked_group = [played_card]
+            for m_idx in sorted(matching_indices, reverse=True):
+                stacked_group.append(hand.pop(m_idx))
+            played_card = stacked_group.pop(-1)
+
+    # Automatic Wild Color Selection
+    played_card_s = str(played_card)
+    if any(w in played_card_s for w in ["Wild", "+4", "+8", "-2"]):
+        chosen_color = get_ai_best_color(hand)
+        if "+8" in played_card_s:
+            played_card = chosen_color + " +8"
+        elif "+4" in played_card_s:
+            played_card = chosen_color + " +4"
+        elif "-2" in played_card_s:
+            played_card = chosen_color + " -2"
+        else:
+            played_card = chosen_color + " Wild"
+
+    played_final_s = str(played_card)
+
+    if "-2" in played_final_s:
+        for _ in range(2):
+            if hand:
+                discarded = hand.pop(0)
+                deck.append(discarded)
+
+    if len(hand) == 1:
+        play_card_from_player_to_center(played_card, player_lbl=player_lbl, is_uno=True)
+    elif len(hand) == 0:
+        play_card_from_player_to_center(played_card, player_lbl=player_lbl, is_final=True)
+    else:
+        play_card_from_player_to_center(played_card, player_lbl=player_lbl)
+
+    return played_card
+
+
+# ==========================================
+# HUMAN PLAYER INTERACTIVE TURN ENGINE
+# ==========================================
 
 def process_player_turn(discard_card, hand, deck):
     while True:
@@ -815,30 +958,61 @@ def process_player_turn(discard_card, hand, deck):
             card_idx = legal_indices[sel_idx - 1]
             played_card = hand.pop(card_idx)
 
-            if "Wild" in played_card or "+4" in played_card:
-                chosen_color = select_menu_option("CHOOSE COLOR:", ["Red", "Yellow", "Green", "Blue"])
-                if "+4" in played_card:
-                    played_card = chosen_color + " +4"
-                else:
-                    played_card = chosen_color + " Wild"
-
-            print(">>> YOU PLAYED: " + played_card)
-
             if custom_rules["stack_similar"]:
                 played_rank = get_card_rank(played_card)
                 matching_indices = [i for i, c in enumerate(hand) if get_card_rank(c) == played_rank]
                 
                 if matching_indices:
-                    for m_idx in sorted(matching_indices, reverse=True):
-                        stacked_card = hand.pop(m_idx)
-                        print(">>> AUTO STACKED MATCH PLAYED: " + stacked_card)
+                    stack_choice = select_menu_option("STACK CARDS?", ["Yes", "No"])
+                    if stack_choice == "Yes":
+                        stacked_group = [played_card]
+                        for m_idx in sorted(matching_indices, reverse=True):
+                            stacked_group.append(hand.pop(m_idx))
+                        
+                        top_options = [abbreviate_card(c) for c in stacked_group]
+                        top_idx, _ = select_menu_option_indexed("WHICH ON TOP?", top_options)
+                        played_card = stacked_group.pop(top_idx)
+                else:
+                    brain.screen.set_fill_color(Color.BLACK)
+                    brain.screen.set_pen_color(Color.YELLOW)
+                    brain.screen.clear_screen()
+                    brain.screen.set_cursor(3, 1)
+                    brain.screen.print(" NO STACK AVAIL ")
+                    wait(1000, MSEC)
+
+            played_card_s = str(played_card)
+            if any(w in played_card_s for w in ["Wild", "+4", "+8", "-2"]):
+                chosen_color = select_menu_option("CHOOSE COLOR:", ["Red", "Yellow", "Green", "Blue"])
+                if "+8" in played_card_s:
+                    played_card = chosen_color + " +8"
+                elif "+4" in played_card_s:
+                    played_card = chosen_color + " +4"
+                elif "-2" in played_card_s:
+                    played_card = chosen_color + " -2"
+                else:
+                    played_card = chosen_color + " Wild"
+
+            played_final_s = str(played_card)
+
+            if "-2" in played_final_s and game_mode in ["Chaotic", "AI", "4v4"]:
+                brain.screen.set_fill_color(Color.BLACK)
+                brain.screen.set_pen_color(Color.PURPLE)
+                brain.screen.clear_screen()
+                brain.screen.set_cursor(3, 1)
+                brain.screen.print(" DISCARD 2 CARDS ")
+                wait(1000, MSEC)
+                
+                for _ in range(2):
+                    if hand:
+                        discarded = hand.pop(0)
+                        deck.append(discarded)
 
             if len(hand) == 1:
-                robot_deliver_card(played_card, is_uno=True)
+                play_card_from_player_to_center(played_card, player_lbl="YOU", is_uno=True)
             elif len(hand) == 0:
-                robot_deliver_card(played_card, is_final=True)
+                play_card_from_player_to_center(played_card, player_lbl="YOU", is_final=True)
             else:
-                robot_deliver_card(played_card)
+                play_card_from_player_to_center(played_card, player_lbl="YOU")
 
             return played_card
 
@@ -852,73 +1026,239 @@ def process_player_turn(discard_card, hand, deck):
 
 
 # ==========================================
-# MAIN GAME EXECUTION (VERSION 3.5)
+# MAIN GAME EXECUTION (VERSION 5.5)
 # ==========================================
-
-uno_deck = build_uno_deck()
-shuffle_deck(uno_deck)
-print("=== SHUFFLED DECK ===")
-print(uno_deck)
-
-player_hand = deal_hand(uno_deck, 7)
-print("\n=== STARTING HAND (7 CARDS) ===")
-print(player_hand)
-
-print("\n==================================")
-print("=== NEW UNO GAME STARTED (v3.5) ===")
 
 start_main_menu()
 
-while True:
-    if check_game_over(player_hand):
-        break
+uno_deck = build_uno_deck()
+shuffle_deck(uno_deck)
 
-    view_full_hand(player_hand)
+discard_top = ""
 
-    attack_choice = select_menu_option("INCOMING ATTACK?", ["None", "Draw 2", "Draw 4"])
-    if attack_choice != "None":
-        penalty = 2 if attack_choice == "Draw 2" else 4
+# ==========================================
+# 4v4 AUTONOMOUS SHARED-CENTER MODE
+# ==========================================
+
+if game_mode == "4v4":
+    show_loading_screen("DEALING CARDS...")
+    hands = [deal_hand(uno_deck, 7) for _ in range(4)]
+    player_names = ["P1-NORTH", "P2-EAST", "P3-SOUTH", "P4-WEST"]
+
+    drawn_start = draw_card(uno_deck)
+    while drawn_start and any(w in str(drawn_start) for w in ["Wild", "+4", "+8", "-2", "+2", "Skip", "Reverse"]):
+        uno_deck.append(drawn_start)
+        shuffle_deck(uno_deck)
+        drawn_start = draw_card(uno_deck)
+    discard_top = drawn_start if drawn_start else "Red 5"
+
+    current_p = 0
+    direction = 1
+
+    while True:
+        p_lbl = player_names[current_p]
+
+        # 1. Clear display and explicitly print player label
+        brain.screen.set_fill_color(Color.BLACK)
+        brain.screen.set_pen_color(Color.WHITE)
+        brain.screen.clear_screen()
+        brain.screen.set_cursor(2, 1)
+        brain.screen.print((p_lbl + " TURN")[:16])
+        brain.screen.set_cursor(4, 1)
+        brain.screen.print(("TOP: " + abbreviate_card(discard_top))[:16])
+        wait(100, MSEC)
+
+        # 2. Drive from Center OUT to target Player Station (P1=0, P2=1, P3=2, P4=3)
+        move_from_center_to_player(current_p)
+
+        discard_str = str(discard_top)
+
+        # 3. Handle pending draw penalties
+        if any(attack in discard_str for attack in ["+2", "+4", "+8"]):
+            if "+2" in discard_str: pen = 2
+            elif "+4" in discard_str: pen = 4
+            elif "+8" in discard_str: pen = 8
+            else: pen = 0
+
+            if "+2" in discard_str and custom_rules["stack_draw2"]:
+                p2_idx = [i for i, c in enumerate(hands[current_p]) if "+2" in str(c)]
+                if p2_idx:
+                    played_2 = hands[current_p].pop(p2_idx[0])
+                    brain.screen.set_fill_color(Color.BLACK)
+                    brain.screen.set_pen_color(Color.GREEN)
+                    brain.screen.clear_screen()
+                    brain.screen.set_cursor(3, 1)
+                    brain.screen.print((p_lbl + " STACK +2")[:16])
+                    wait(800, MSEC)
+                    play_card_from_player_to_center(played_2, player_lbl=p_lbl)
+                    discard_top = played_2
+                    pen = 0
+
+            if pen > 0:
+                robot_fetch_card(count=pen)
+                for _ in range(pen):
+                    d = draw_card(uno_deck)
+                    if d: hands[current_p].append(d)
+
+        # 4. Execute player turn (Player Station -> Center -> Player Station -> Resets to Center)
+        discard_top = process_autonomous_turn(discard_top, hands[current_p], uno_deck, player_lbl=p_lbl)
+
+        # 5. Check victory state
+        if check_game_over(hands[current_p], winner_label=p_lbl + " WINS!"):
+            break
+
+        # 6. Direction & Skip handling (Cycles 0 -> 1 -> 2 -> 3)
+        discard_final_s = str(discard_top)
+        if "Skip" in discard_final_s:
+            current_p = (current_p + 2 * direction) % 4
+        elif "Reverse" in discard_final_s:
+            direction *= -1
+            current_p = (current_p + direction) % 4
+        else:
+            current_p = (current_p + direction) % 4
+
+# ==========================================
+# HUMAN VS AI GAME MODE
+# ==========================================
+
+elif game_mode == "AI":
+    player_hand = deal_hand(uno_deck, 7)
+    ai_hand = deal_hand(uno_deck, 7)
+
+    drawn_start = draw_card(uno_deck)
+    while drawn_start and any(w in str(drawn_start) for w in ["Wild", "+4", "+8", "-2", "+2", "Skip", "Reverse"]):
+        uno_deck.append(drawn_start)
+        shuffle_deck(uno_deck)
+        drawn_start = draw_card(uno_deck)
+    discard_top = drawn_start if drawn_start else "Red 5"
+
+    while True:
+        # --- 1. AI TURN ---
+        move_from_center_to_player(2)
+        discard_str = str(discard_top)
         
-        if attack_choice == "Draw 2" and custom_rules["stack_draw2"]:
-            plus2_indices = [i for i, c in enumerate(player_hand) if "+2" in c]
-            if plus2_indices:
-                plus2_idx = plus2_indices[0]
-                played_2 = player_hand.pop(plus2_idx)
-                print(">>> AUTO STACKED +2 PLAYED: " + played_2)
-                
-                brain.screen.set_fill_color(Color.BLACK)
-                brain.screen.set_pen_color(Color.GREEN)
-                brain.screen.clear_screen()
-                brain.screen.set_cursor(3, 1)
-                brain.screen.print("   STACKED +2!   ")
-                wait(1000, MSEC)
-                
-                robot_deliver_card(played_2)
-                penalty = 0
-            else:
-                brain.screen.set_fill_color(Color.BLACK)
-                brain.screen.set_pen_color(Color.RED)
-                brain.screen.clear_screen()
-                brain.screen.set_cursor(3, 1)
-                brain.screen.print("   TOOK CARDS   ")
-                wait(1000, MSEC)
-                
-        if penalty > 0:
-            robot_fetch_card(count=penalty)
-            for _ in range(penalty):
-                drawn = draw_card(uno_deck)
-                if drawn:
-                    player_hand.append(drawn)
-            view_full_hand(player_hand)
+        if any(attack in discard_str for attack in ["+2", "+4", "+8"]):
+            if "+2" in discard_str: pen = 2
+            elif "+4" in discard_str: pen = 4
+            elif "+8" in discard_str: pen = 8
+            else: pen = 0
+            
+            if "+2" in discard_str and custom_rules["stack_draw2"]:
+                p2_idx = [i for i, c in enumerate(ai_hand) if "+2" in str(c)]
+                if p2_idx:
+                    played_2 = ai_hand.pop(p2_idx[0])
+                    play_card_from_player_to_center(played_2, player_lbl="AI")
+                    discard_top = played_2
+                    pen = 0
+            
+            if pen > 0:
+                robot_fetch_card(count=pen)
+                for _ in range(pen):
+                    d = draw_card(uno_deck)
+                    if d: ai_hand.append(d)
 
-        continue
+        discard_top = process_autonomous_turn(discard_top, ai_hand, uno_deck, player_lbl="AI")
+        if check_game_over(ai_hand, winner_label="AI WINS!"):
+            break
 
-    discard_top = input_top_card()
-    print_hand_to_console(player_hand, uno_deck, discard_top)
+        # --- 2. HUMAN PLAYER TURN ---
+        move_from_center_to_player(0)
+        discard_str = str(discard_top)
+        
+        if any(attack in discard_str for attack in ["+2", "+4", "+8"]):
+            if "+2" in discard_str: pen = 2
+            elif "+4" in discard_str: pen = 4
+            elif "+8" in discard_str: pen = 8
+            else: pen = 0
 
-    discard_top = process_player_turn(discard_top, player_hand, uno_deck)
+            if "+2" in discard_str and custom_rules["stack_draw2"]:
+                p2_idx = [i for i, c in enumerate(player_hand) if "+2" in str(c)]
+                if p2_idx:
+                    st_opt = select_menu_option("AI ATTACK! STACK?", ["Stack +2", "Take Cards"])
+                    if st_opt == "Stack +2":
+                        played_2 = player_hand.pop(p2_idx[0])
+                        play_card_from_player_to_center(played_2, player_lbl="YOU")
+                        discard_top = played_2
+                        pen = 0
 
-    if check_game_over(player_hand):
-        break
+            if pen > 0:
+                select_menu_option("TAKE + " + str(pen) + " CARDS", ["Confirm"])
+                robot_fetch_card(count=pen)
+                for _ in range(pen):
+                    d = draw_card(uno_deck)
+                    if d: player_hand.append(d)
 
-print("\nGAME OVER - All cards played!")
+        print_hand_to_console(player_hand, uno_deck, discard_top)
+        discard_top = process_player_turn(discard_top, player_hand, uno_deck)
+        
+        if check_game_over(player_hand, winner_label="YOU WIN!"):
+            break
+
+# ==========================================
+# CLASSIC HUMAN GAME MODES ("Unchanged", "Chaotic")
+# ==========================================
+
+else:
+    player_hand = deal_hand(uno_deck, 7)
+
+    while True:
+        if check_game_over(player_hand, winner_label="WINNER!"):
+            break
+
+        view_full_hand(player_hand)
+
+        attack_options = ["None", "Draw 2", "Draw 4"]
+        if game_mode == "Chaotic":
+            attack_options.append("Draw 8")
+
+        attack_choice = select_menu_option("INCOMING ATTACK?", attack_options)
+        if attack_choice != "None":
+            if attack_choice == "Draw 2": penalty = 2
+            elif attack_choice == "Draw 4": penalty = 4
+            elif attack_choice == "Draw 8": penalty = 8
+            else: penalty = 0
+            
+            if attack_choice == "Draw 2" and custom_rules["stack_draw2"]:
+                plus2_indices = [i for i, c in enumerate(player_hand) if "+2" in str(c)]
+                if plus2_indices:
+                    stack_opt = select_menu_option("STACK +2?", ["Stack", "Take Cards"])
+                    if stack_opt == "Stack":
+                        plus2_idx = plus2_indices[0]
+                        played_2 = player_hand.pop(plus2_idx)
+                        
+                        brain.screen.set_fill_color(Color.BLACK)
+                        brain.screen.set_pen_color(Color.GREEN)
+                        brain.screen.clear_screen()
+                        brain.screen.set_cursor(3, 1)
+                        brain.screen.print("   STACKED +2!   ")
+                        wait(1000, MSEC)
+                        
+                        play_card_from_player_to_center(played_2, player_lbl="YOU")
+                        penalty = 0
+                else:
+                    brain.screen.set_fill_color(Color.BLACK)
+                    brain.screen.set_pen_color(Color.RED)
+                    brain.screen.clear_screen()
+                    brain.screen.set_cursor(3, 1)
+                    brain.screen.print(" NO STACK AVAIL ")
+                    wait(1000, MSEC)
+                    
+            if penalty > 0:
+                robot_fetch_card(count=penalty)
+                for _ in range(penalty):
+                    drawn = draw_card(uno_deck)
+                    if drawn:
+                        player_hand.append(drawn)
+                view_full_hand(player_hand)
+
+            continue
+
+        discard_top = input_top_card()
+        print_hand_to_console(player_hand, uno_deck, discard_top)
+
+        discard_top = process_player_turn(discard_top, player_hand, uno_deck)
+
+        if check_game_over(player_hand, winner_label="WINNER!"):
+            break
+
+print("GAME OVER")
